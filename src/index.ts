@@ -4,6 +4,7 @@ import { authMiddleware } from "./middleware/auth";
 import { createRepositories } from "./services/repositories";
 import { createParser } from "./services/parserFactory";
 import { createTranscriber } from "./services/transcriberFactory";
+import { ApiServer } from "./services/apiServer";
 import { ExpenseHandler } from "./handlers/expenseHandler";
 import { QueryHandler } from "./handlers/queryHandler";
 import { LimitHandler } from "./handlers/limitHandler";
@@ -181,6 +182,16 @@ init()
     // Inicia scheduler de relatórios
     const scheduler = new ReportScheduler(bot, repos);
     await scheduler.start();
+
+    // Inicia API REST (se token configurado)
+    const apiToken = process.env.API_TOKEN?.trim();
+    if (apiToken) {
+      const apiPort = parseInt(process.env.API_PORT ?? "3000", 10);
+      const apiServer = new ApiServer(repos, apiToken, apiPort);
+      await apiServer.start();
+    } else {
+      console.log("[API] API_TOKEN não configurado, REST API desabilitada");
+    }
 
     // Inicia bot
     bot.start();

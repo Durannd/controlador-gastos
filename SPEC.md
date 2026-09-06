@@ -114,6 +114,7 @@ interface Expense {
 - **IA para parsing**: Gemini ou DeepSeek (configurável via env)
 - **Transcrição de áudio**: Groq Whisper (gratuito)
 - **Cron**: node-cron para relatórios agendados
+- **REST API**: Fastify + Bearer token (opcional, porta 3000)
 - **Container**: Docker + docker-compose
 
 ---
@@ -127,9 +128,31 @@ interface Expense {
 | `AI_PROVIDER` | `gemini` ou `deepseek` | Não (default: gemini) |
 | `GEMINI_API_KEY` | API key do Gemini | Condicional |
 | `DEEPSEEK_API_KEY` | API key do DeepSeek | Condicional |
+| `GROQ_API_KEY` | API key do Groq (transcrição áudio) | Não |
+| `API_TOKEN` | Bearer token para REST API | Não |
+| `API_PORT` | Porta da API (default: 3000) | Não |
 | `WEEKLY_REPORT_DAY` | 0-6 (domingo-sábado) | Não (default: 0) |
 | `WEEKLY_REPORT_TIME` | HH:mm | Não (default: 10:00) |
 | `ALERT_THRESHOLD` | 0.0-1.0 | Não (default: 0.8) |
+
+## REST API
+
+Se `API_TOKEN` configurado, expõe HTTP em `API_PORT`:
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/health` | Healthcheck (sem auth) |
+| GET | `/api/categories` | Lista categorias |
+| POST | `/api/categories` | Cria categoria |
+| PUT | `/api/categories/:id` | Atualiza categoria |
+| DELETE | `/api/categories/:id` | Remove categoria |
+| GET | `/api/expenses` | Lista gastos (filtros: categoryId, startDate, endDate, confirmed) |
+| POST | `/api/expenses` | Cria gasto |
+| PUT | `/api/expenses/:id` | Atualiza gasto |
+| DELETE | `/api/expenses/:id` | Remove gasto |
+| GET | `/api/stats/month` | Stats do mês com breakdown |
+
+**Auth:** `Authorization: Bearer <API_TOKEN>`
 
 ---
 
@@ -168,5 +191,5 @@ docker-compose up
 - [x] **Iteração 4**: Fluxo completo de registro + botões inline
 - [x] **Iteração 5**: Consultas e relatórios sob demanda
 - [x] **Iteração 6**: Limites, alertas e relatórios agendados
-- [x] **Iteração 7**: Áudio (transcrição via Groq Whisper) ← VOCÊ ESTÁ AQUI
-- [ ] **Iteração 8**: REST API (futuro)
+- [x] **Iteração 7**: Áudio (transcrição via Groq Whisper)
+- [x] **Iteração 8**: REST API (Fastify + Bearer token) ← VOCÊ ESTÁ AQUI
