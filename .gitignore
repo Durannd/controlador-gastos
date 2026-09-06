@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+.vscode/
+.idea/
+
+# Dados locais (privados)
+data/config.json
+data/expenses.json
+data/categories.json
+data/*.tmp
+
+# Coverage
+coverage/
