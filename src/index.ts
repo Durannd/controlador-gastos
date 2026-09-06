@@ -4,6 +4,7 @@ import { authMiddleware } from "./middleware/auth";
 import { createRepositories } from "./services/repositories";
 import { createParser } from "./services/parserFactory";
 import { ExpenseHandler } from "./handlers/expenseHandler";
+import { QueryHandler } from "./handlers/queryHandler";
 
 // ---- Configuração inicial ----
 
@@ -30,6 +31,7 @@ const dataPath = process.env.DATA_PATH ?? "./data";
 const repos = createRepositories(dataPath);
 const parser = createParser();
 const expenseHandler = new ExpenseHandler(parser, repos);
+const queryHandler = new QueryHandler(repos);
 
 async function init() {
   await repos.config.get();
@@ -52,13 +54,14 @@ bot.use(async (ctx, next) => {
   (ctx as any).repos = repos;
   (ctx as any).parser = parser;
   (ctx as any).expenseHandler = expenseHandler;
+  (ctx as any).queryHandler = queryHandler;
   await next();
 });
 
 // Middleware de autenticação
 bot.use(authMiddleware(allowedUserIds));
 
-// Comandos
+// Comandos de info
 bot.command("start", (ctx) => {
   ctx.reply(
     "👋 Olá! Eu sou seu assistente de gastos.\n\n" +
@@ -66,29 +69,41 @@ bot.command("start", (ctx) => {
       "• gastei 15 no uber\n" +
       "• paguei 50,00 no almoço\n" +
       "• 30 no ifood\n\n" +
-      "Vou te mostrar um preview antes de salvar!\n\n" +
       "Comandos:\n" +
       "/help - ajuda\n" +
-      "/categorias - lista de categorias\n" +
+      "/categorias - lista categorias\n" +
+      "/resumo ou /mes - resumo do mês\n" +
+      "/relatorio - relatório detalhado\n" +
+      "/hoje - gastos de hoje\n" +
+      "/semana - gastos da semana\n" +
+      "/categoria <nome> - gastos de uma categoria\n" +
       "/testar <frase> - testa o parser"
   );
 });
 
 bot.command("help", (ctx) => {
   ctx.reply(
-    "🤖 Comandos disponíveis:\n\n" +
-      "/start - mensagem inicial\n" +
-      "/help - esta ajuda\n" +
+    "🤖 Comandos:\n\n" +
+      "📊 Consultas:\n" +
+      "/resumo ou /mes - resumo do mês\n" +
+      "/relatorio - relatório detalhado\n" +
+      "/hoje - gastos de hoje\n" +
+      "/semana - gastos da semana\n" +
+      "/categoria <nome> - gastos de uma categoria\n\n" +
+      "📂 Outros:\n" +
       "/categorias - lista categorias\n" +
       "/testar <frase> - testa o parser\n\n" +
-      "💬 Pra registrar um gasto, é só mandar a frase!"
+      "💬 Pra registrar, é só mandar a frase!"
   );
 });
 
 bot.command("categorias", async (ctx) => {
   const cats = await repos.categories.findAll();
   const list = cats
-    .map((c) => `${c.icon ?? "📦"} ${c.name}${c.limit ? ` (limite R$${c.limit})` : ""}`)
+    .map(
+      (c) =>
+        `${c.icon ?? "📦"} ${c.name}${c.limit ? ` (limite R$${c.limit})` : ""}`
+    )
     .join("\n");
   await ctx.reply(`📂 Categorias:\n\n${list}`);
 });
@@ -109,8 +124,16 @@ bot.command("testar", async (ctx) => {
   );
 });
 
-// Handler de gastos — captura texto (exceto comandos) e callbacks de botões inline
-bot.on("message:text", (ctx) => expenseHandler.handle(ctx));
+// Handler de gastos (texto + callbacks)
+bot.on("message:text", (ctx) => {
+  const text = ctx.message?.text;
+  // Comandos vão pro QueryHandler
+  if (text?.startsWith("/")) {
+    return queryHandler.handle(ctx);
+  }
+  return expenseHandler.handle(ctx);
+});
+
 bot.on("callback_query:data", (ctx) => expenseHandler.handleCallback(ctx));
 
 // Inicia
