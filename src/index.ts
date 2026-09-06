@@ -1,10 +1,9 @@
 import "dotenv/config";
-import { Bot, Context } from "grammy";
+import { Bot } from "grammy";
 import { authMiddleware } from "./middleware/auth";
-import { echoHandler } from "./handlers/echo";
 import { createRepositories } from "./services/repositories";
 import { createParser } from "./services/parserFactory";
-import { ExpenseParser } from "./services/parser";
+import { ExpenseHandler } from "./handlers/expenseHandler";
 
 // ---- Configuração inicial ----
 
@@ -30,6 +29,7 @@ const dataPath = process.env.DATA_PATH ?? "./data";
 
 const repos = createRepositories(dataPath);
 const parser = createParser();
+const expenseHandler = new ExpenseHandler(parser, repos);
 
 async function init() {
   await repos.config.get();
@@ -47,25 +47,30 @@ init().catch((err) => {
 
 const bot = new Bot(token);
 
-// Middleware: injeta repos e parser no contexto
+// Middleware: injeta dependências no contexto
 bot.use(async (ctx, next) => {
   (ctx as any).repos = repos;
   (ctx as any).parser = parser;
+  (ctx as any).expenseHandler = expenseHandler;
   await next();
 });
 
 // Middleware de autenticação
 bot.use(authMiddleware(allowedUserIds));
 
-// Comandos básicos
+// Comandos
 bot.command("start", (ctx) => {
   ctx.reply(
-    "Olá! 👋 Eu sou seu assistente de gastos.\n\n" +
-      "Comandos disponíveis:\n" +
-      "/start - esta mensagem\n" +
+    "👋 Olá! Eu sou seu assistente de gastos.\n\n" +
+      "📝 Envie frases como:\n" +
+      "• gastei 15 no uber\n" +
+      "• paguei 50,00 no almoço\n" +
+      "• 30 no ifood\n\n" +
+      "Vou te mostrar um preview antes de salvar!\n\n" +
+      "Comandos:\n" +
       "/help - ajuda\n" +
-      "/testar <frase> - testa o parser de IA\n\n" +
-      "Por enquanto sou um eco bot — respondo o que você mandar."
+      "/categorias - lista de categorias\n" +
+      "/testar <frase> - testa o parser"
   );
 });
 
@@ -74,23 +79,29 @@ bot.command("help", (ctx) => {
     "🤖 Comandos disponíveis:\n\n" +
       "/start - mensagem inicial\n" +
       "/help - esta ajuda\n" +
-      "/categorias - lista de categorias\n" +
-      "/testar <frase> - testa o parser de IA\n\n" +
-      "Você pode me mandar qualquer mensagem e eu respondo de volta."
+      "/categorias - lista categorias\n" +
+      "/testar <frase> - testa o parser\n\n" +
+      "💬 Pra registrar um gasto, é só mandar a frase!"
   );
 });
 
-// Comando de teste do parser (Iter 3)
+bot.command("categorias", async (ctx) => {
+  const cats = await repos.categories.findAll();
+  const list = cats
+    .map((c) => `${c.icon ?? "📦"} ${c.name}${c.limit ? ` (limite R$${c.limit})` : ""}`)
+    .join("\n");
+  await ctx.reply(`📂 Categorias:\n\n${list}`);
+});
+
 bot.command("testar", async (ctx) => {
   const text = ctx.match?.trim();
   if (!text) {
     await ctx.reply("Uso: /testar <frase>\nExemplo: /testar gastei 15 no uber");
     return;
   }
-
   const result = await parser.parse(text);
   await ctx.reply(
-    `🔍 Resultado do parser:\n\n` +
+    `🔍 Parser:\n` +
       `Valor: R$${result.amount.toFixed(2)}\n` +
       `Categoria: ${result.category ?? "(nenhuma)"}\n` +
       `Descrição: ${result.description ?? "(nenhuma)"}\n` +
@@ -98,8 +109,9 @@ bot.command("testar", async (ctx) => {
   );
 });
 
-// Eco (será substituído na Iter 4 pelo handler de gastos)
-bot.on("message:text", echoHandler);
+// Handler de gastos — captura texto (exceto comandos) e callbacks de botões inline
+bot.on("message:text", (ctx) => expenseHandler.handle(ctx));
+bot.on("callback_query:data", (ctx) => expenseHandler.handleCallback(ctx));
 
 // Inicia
 bot.start();
