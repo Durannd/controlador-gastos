@@ -111,7 +111,8 @@ interface Expense {
 - **Linguagem**: TypeScript 5.5
 - **Bot**: grammY (Telegram)
 - **Persistência**: JSON files em `data/`
-- **IA**: Gemini ou DeepSeek (configurável via env)
+- **IA para parsing**: Gemini ou DeepSeek (configurável via env)
+- **Transcrição de áudio**: Groq Whisper (gratuito)
 - **Cron**: node-cron para relatórios agendados
 - **Container**: Docker + docker-compose
 
@@ -161,11 +162,11 @@ docker-compose up
 
 ## Roadmap
 
-- [x] **Iteração 1**: Setup + Echo Bot + Autenticação ← VOCÊ ESTÁ AQUI
-- [ ] **Iteração 2**: Persistência JSON (gastos, categorias, config)
-- [ ] **Iteração 3**: AI Parser (extrai valor/categoria de texto)
-- [ ] **Iteração 4**: Fluxo completo de registro + botões inline
-- [ ] **Iteração 5**: Consultas e relatórios sob demanda
-- [ ] **Iteração 6**: Limites, alertas e relatórios agendados
-- [ ] **Iteração 7**: Áudio (transcrição nativa do Telegram)
+- [x] **Iteração 1**: Setup + Echo Bot + Autenticação
+- [x] **Iteração 2**: Persistência JSON (gastos, categorias, config)
+- [x] **Iteração 3**: AI Parser (extrai valor/categoria de texto)
+- [x] **Iteração 4**: Fluxo completo de registro + botões inline
+- [x] **Iteração 5**: Consultas e relatórios sob demanda
+- [x] **Iteração 6**: Limites, alertas e relatórios agendados
+- [x] **Iteração 7**: Áudio (transcrição via Groq Whisper) ← VOCÊ ESTÁ AQUI
 - [ ] **Iteração 8**: REST API (futuro)

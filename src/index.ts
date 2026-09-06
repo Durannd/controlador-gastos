@@ -3,6 +3,7 @@ import { Bot } from "grammy";
 import { authMiddleware } from "./middleware/auth";
 import { createRepositories } from "./services/repositories";
 import { createParser } from "./services/parserFactory";
+import { createTranscriber } from "./services/transcriberFactory";
 import { ExpenseHandler } from "./handlers/expenseHandler";
 import { QueryHandler } from "./handlers/queryHandler";
 import { LimitHandler } from "./handlers/limitHandler";
@@ -32,10 +33,12 @@ const dataPath = process.env.DATA_PATH ?? "./data";
 
 const repos = createRepositories(dataPath);
 const parser = createParser();
+const transcriber = createTranscriber();
 const expenseHandler = new ExpenseHandler(parser, repos);
 const queryHandler = new QueryHandler(repos);
 const limitHandler = new LimitHandler(repos);
 expenseHandler.setLimitHandler(limitHandler);
+expenseHandler.setTranscriber(transcriber);
 
 async function init() {
   await repos.config.get();
@@ -155,14 +158,12 @@ bot.on("message:text", (ctx) => {
     return limitHandler.handle(ctx);
   }
 
-  // Comando /testar
-  if (text.startsWith("/testar")) return; // já tratado acima
-
-  // Outros comandos → /start, /help, /categorias já tratados
-
   // Texto livre → handler de gastos
   return expenseHandler.handle(ctx);
 });
+
+// Mensagens de voz → transcreve e processa como gasto
+bot.on("message:voice", (ctx) => expenseHandler.handle(ctx));
 
 bot.on("callback_query:data", (ctx) => expenseHandler.handleCallback(ctx));
 

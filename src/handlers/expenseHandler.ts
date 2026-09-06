@@ -2,12 +2,15 @@ import { Context, InlineKeyboard } from "grammy";
 import { ExpenseParser, ParsedExpense } from "../services/parser";
 import { Repositories } from "../services/repositories";
 import { LimitHandler } from "./limitHandler";
+import { Transcriber } from "../services/transcriber";
 
 /**
  * Handler principal de gastos.
  *
+ * Suporta entrada por texto ou áudio (transcrito).
+ *
  * Fluxo:
- * 1. Recebe mensagem de texto
+ * 1. Recebe mensagem (texto OU voz transcrita)
  * 2. Chama o parser para extrair valor + categoria
  * 3. Mostra preview com botões OK / CANCELAR
  * 4. Ao confirmar (callback), salva o gasto
@@ -16,24 +19,55 @@ import { LimitHandler } from "./limitHandler";
  */
 export class ExpenseHandler {
   private limitHandler: LimitHandler | null = null;
+  private transcriber: Transcriber | null = null;
 
   constructor(
     private readonly parser: ExpenseParser,
     private readonly repos: Repositories
   ) {}
 
-  /**
-   * Injeta o LimitHandler (lazy para evitar ciclo de dependência).
-   */
   setLimitHandler(handler: LimitHandler): void {
     this.limitHandler = handler;
   }
 
+  setTranscriber(transcriber: Transcriber | null): void {
+    this.transcriber = transcriber;
+  }
+
   /**
-   * Handler de mensagens de texto — extrai e mostra preview.
+   * Handler unificado — recebe texto OU áudio.
    */
   async handle(ctx: Context): Promise<void> {
-    const text = ctx.message?.text;
+    let text: string | undefined;
+
+    // 1. Texto
+    if (ctx.message?.text) {
+      text = ctx.message.text;
+    }
+    // 2. Áudio (voice message)
+    else if (ctx.message?.voice) {
+      if (!this.transcriber) {
+        await ctx.reply(
+          "🎤 Áudio não suportado (transcriber não configurado).\n" +
+            "Adicione GROQ_API_KEY no .env ou me mande texto."
+        );
+        return;
+      }
+
+      await ctx.reply("🎤 Transcrevendo...");
+      const transcribed = await this.transcriber.transcribe(ctx);
+
+      if (!transcribed) {
+        await ctx.reply(
+          "❌ Não consegui transcrever o áudio. Tente novamente ou mande texto."
+        );
+        return;
+      }
+
+      await ctx.reply(`🎤 "${transcribed}"`);
+      text = transcribed;
+    }
+
     if (!text || text.startsWith("/")) return;
 
     const userId = ctx.from?.id?.toString();
@@ -41,7 +75,7 @@ export class ExpenseHandler {
 
     const parsed = await this.parser.parse(text);
 
-    // Confiança muito baixa → não é gasto, responde com eco/ajuda
+    // Confiança muito baixa → não é gasto, responde com ajuda
     if (parsed.amount <= 0 || parsed.confidence < 0.3) {
       await ctx.reply(
         "🤔 Não entendi como gasto. Tente algo como:\n" +
@@ -74,7 +108,6 @@ export class ExpenseHandler {
 
     const [, action, payload] = data.split(":");
 
-    // payload = JSON-encoded ParsedExpense
     let parsed: ParsedExpense;
     try {
       parsed = JSON.parse(decodeURIComponent(payload));
@@ -106,15 +139,13 @@ export class ExpenseHandler {
     const categoryLabel = category?.name ?? parsed.category ?? "outros";
     const amount = parsed.amount.toFixed(2);
 
-    // Se categoria não existe, oferece criar
-    let keyboard = new InlineKeyboard();
+    const keyboard = new InlineKeyboard();
     if (category) {
       const payload = encodeURIComponent(JSON.stringify(parsed));
       keyboard
         .text("✅ OK", `expense:confirm:${payload}`)
         .text("❌ Cancelar", `expense:cancel:`);
     } else {
-      // Categoria não existe — oferece criar como "outros"
       const fallback = { ...parsed, category: "outros" };
       const payload = encodeURIComponent(JSON.stringify(fallback));
       keyboard
@@ -157,7 +188,6 @@ export class ExpenseHandler {
     parsed: ParsedExpense,
     userId: string
   ): Promise<void> {
-    // Resolve categoria (cria se não existir)
     let category = await this.repos.categories.findByName(parsed.category!);
     if (!category) {
       category = await this.repos.categories.add({
@@ -167,7 +197,6 @@ export class ExpenseHandler {
       });
     }
 
-    // Salva gasto
     const expense = await this.repos.expenses.add({
       categoryId: category.id,
       amount: parsed.amount,
@@ -177,7 +206,6 @@ export class ExpenseHandler {
       userId,
     });
 
-    // Calcula total do mês
     const now = new Date();
     const totalMonth = await this.repos.expenses.sumByCategoryInMonth(
       category.id,
@@ -198,7 +226,6 @@ export class ExpenseHandler {
       `📊 Este mês: R$${totalMonth.toFixed(2)}${limitText}\n` +
       `🆔 ${expense.id.slice(0, 8)}`;
 
-    // Verifica alerta de limite
     if (this.limitHandler) {
       const alert = await this.limitHandler.checkAlert(category.id, totalMonth);
       if (alert) {
