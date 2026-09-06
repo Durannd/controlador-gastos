@@ -1,6 +1,7 @@
 import { Context, InlineKeyboard } from "grammy";
 import { ExpenseParser, ParsedExpense } from "../services/parser";
 import { Repositories } from "../services/repositories";
+import { LimitHandler } from "./limitHandler";
 
 /**
  * Handler principal de gastos.
@@ -11,12 +12,22 @@ import { Repositories } from "../services/repositories";
  * 3. Mostra preview com botões OK / CANCELAR
  * 4. Ao confirmar (callback), salva o gasto
  * 5. Após salvar, mostra gasto do mês na categoria
+ * 6. Verifica alertas de limite (se configurado)
  */
 export class ExpenseHandler {
+  private limitHandler: LimitHandler | null = null;
+
   constructor(
     private readonly parser: ExpenseParser,
     private readonly repos: Repositories
   ) {}
+
+  /**
+   * Injeta o LimitHandler (lazy para evitar ciclo de dependência).
+   */
+  setLimitHandler(handler: LimitHandler): void {
+    this.limitHandler = handler;
+  }
 
   /**
    * Handler de mensagens de texto — extrai e mostra preview.
@@ -181,11 +192,20 @@ export class ExpenseHandler {
       : "";
     const icon = category.icon ?? "💸";
 
-    await ctx.editMessageText(
+    let message =
       `✅ Adicionado!\n\n` +
-        `${icon} ${category.name}: R$${parsed.amount.toFixed(2)}\n` +
-        `📊 Este mês: R$${totalMonth.toFixed(2)}${limitText}\n` +
-        `🆔 ${expense.id.slice(0, 8)}`
-    );
+      `${icon} ${category.name}: R$${parsed.amount.toFixed(2)}\n` +
+      `📊 Este mês: R$${totalMonth.toFixed(2)}${limitText}\n` +
+      `🆔 ${expense.id.slice(0, 8)}`;
+
+    // Verifica alerta de limite
+    if (this.limitHandler) {
+      const alert = await this.limitHandler.checkAlert(category.id, totalMonth);
+      if (alert) {
+        message += `\n\n${alert}`;
+      }
+    }
+
+    await ctx.editMessageText(message);
   }
 }

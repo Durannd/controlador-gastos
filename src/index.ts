@@ -5,6 +5,8 @@ import { createRepositories } from "./services/repositories";
 import { createParser } from "./services/parserFactory";
 import { ExpenseHandler } from "./handlers/expenseHandler";
 import { QueryHandler } from "./handlers/queryHandler";
+import { LimitHandler } from "./handlers/limitHandler";
+import { ReportScheduler } from "./services/reportScheduler";
 
 // ---- Configuração inicial ----
 
@@ -32,6 +34,8 @@ const repos = createRepositories(dataPath);
 const parser = createParser();
 const expenseHandler = new ExpenseHandler(parser, repos);
 const queryHandler = new QueryHandler(repos);
+const limitHandler = new LimitHandler(repos);
+expenseHandler.setLimitHandler(limitHandler);
 
 async function init() {
   await repos.config.get();
@@ -39,11 +43,6 @@ async function init() {
   await repos.expenses.findAll();
   console.log(`📁 Dados inicializados em: ${dataPath}`);
 }
-
-init().catch((err) => {
-  console.error("❌ Erro ao inicializar dados:", err);
-  process.exit(1);
-});
 
 // ---- Bot ----
 
@@ -55,6 +54,7 @@ bot.use(async (ctx, next) => {
   (ctx as any).parser = parser;
   (ctx as any).expenseHandler = expenseHandler;
   (ctx as any).queryHandler = queryHandler;
+  (ctx as any).limitHandler = limitHandler;
   await next();
 });
 
@@ -65,13 +65,13 @@ bot.use(authMiddleware(allowedUserIds));
 bot.command("start", (ctx) => {
   ctx.reply(
     "👋 Olá! Eu sou seu assistente de gastos.\n\n" +
-      "📝 Envie frases como:\n" +
-      "• gastei 15 no uber\n" +
-      "• paguei 50,00 no almoço\n" +
-      "• 30 no ifood\n\n" +
+      "📝 Pra registrar: gastei 15 no uber\n\n" +
       "Comandos:\n" +
       "/help - ajuda\n" +
       "/categorias - lista categorias\n" +
+      "/limite <cat> <valor> - define limite\n" +
+      "/sem limite <cat> - remove limite\n" +
+      "/limites - lista limites\n" +
       "/resumo ou /mes - resumo do mês\n" +
       "/relatorio - relatório detalhado\n" +
       "/hoje - gastos de hoje\n" +
@@ -84,6 +84,11 @@ bot.command("start", (ctx) => {
 bot.command("help", (ctx) => {
   ctx.reply(
     "🤖 Comandos:\n\n" +
+      "💸 Registrar: gastei 15 no uber\n\n" +
+      "🎯 Limites:\n" +
+      "/limite <cat> <valor> - define limite\n" +
+      "/sem limite <cat> - remove limite\n" +
+      "/limites - lista limites\n\n" +
       "📊 Consultas:\n" +
       "/resumo ou /mes - resumo do mês\n" +
       "/relatorio - relatório detalhado\n" +
@@ -92,8 +97,7 @@ bot.command("help", (ctx) => {
       "/categoria <nome> - gastos de uma categoria\n\n" +
       "📂 Outros:\n" +
       "/categorias - lista categorias\n" +
-      "/testar <frase> - testa o parser\n\n" +
-      "💬 Pra registrar, é só mandar a frase!"
+      "/testar <frase> - testa o parser"
   );
 });
 
@@ -124,21 +128,67 @@ bot.command("testar", async (ctx) => {
   );
 });
 
-// Handler de gastos (texto + callbacks)
+// Dispatcher de comandos: roteia para o handler certo
 bot.on("message:text", (ctx) => {
   const text = ctx.message?.text;
-  // Comandos vão pro QueryHandler
-  if (text?.startsWith("/")) {
+  if (!text) return;
+
+  // Comandos de query
+  if (
+    text.startsWith("/resumo") ||
+    text.startsWith("/mes ") ||
+    text === "/mes" ||
+    text.startsWith("/relatorio") ||
+    text.startsWith("/hoje") ||
+    text.startsWith("/semana") ||
+    text.startsWith("/categoria")
+  ) {
     return queryHandler.handle(ctx);
   }
+
+  // Comandos de limite
+  if (
+    text.startsWith("/limite ") ||
+    text === "/limites" ||
+    text.startsWith("/sem limite")
+  ) {
+    return limitHandler.handle(ctx);
+  }
+
+  // Comando /testar
+  if (text.startsWith("/testar")) return; // já tratado acima
+
+  // Outros comandos → /start, /help, /categorias já tratados
+
+  // Texto livre → handler de gastos
   return expenseHandler.handle(ctx);
 });
 
 bot.on("callback_query:data", (ctx) => expenseHandler.handleCallback(ctx));
 
-// Inicia
-bot.start();
+// ---- Inicialização completa ----
 
-console.log("✅ Bot iniciado com sucesso");
-console.log(`📋 IDs autorizados: ${allowedUserIds.join(", ") || "(nenhum)"}`);
-console.log(`📁 Dados em: ${dataPath}`);
+init()
+  .then(async () => {
+    // Sincroniza config com env (caso ainda não tenha allowedUserIds)
+    const config = await repos.config.get();
+    if (config.allowedUserIds.length === 0 && allowedUserIds.length > 0) {
+      await repos.config.update({ allowedUserIds });
+      console.log("[CONFIG] allowedUserIds sincronizado com .env");
+    }
+
+    // Inicia scheduler de relatórios
+    const scheduler = new ReportScheduler(bot, repos);
+    await scheduler.start();
+
+    // Inicia bot
+    bot.start();
+
+    console.log("✅ Bot iniciado com sucesso");
+    console.log(`📋 IDs autorizados: ${allowedUserIds.join(", ") || "(nenhum)"}`);
+    console.log(`📁 Dados em: ${dataPath}`);
+  })
+  .catch((err) => {
+    console.error("❌ Erro ao inicializar:", err);
+    process.exit(1);
+  });
